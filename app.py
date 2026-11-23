@@ -1,7 +1,7 @@
 import io
+import hashlib
 import re
 import zipfile
-from pathlib import Path
 
 import matplotlib
 matplotlib.use('Agg')
@@ -133,8 +133,13 @@ mode = st.radio('Generate charts for', ['Selected course', 'All courses'], horiz
 selected = st.selectbox('Course / Semester', df['Selection'].tolist(), disabled=(mode == 'All courses'))
 
 
-def draw_chart(row, kind):
-    counts = row[GRADES].to_numpy(dtype=float)
+@st.cache_data(show_spinner=False, max_entries=160)
+def draw_chart_cached(selection, grade_values, kind):
+    counts = np.array(grade_values, dtype=float)
+    return _render_chart(selection, counts, kind)
+
+
+def _render_chart(selection, counts, kind):
     total = counts.sum()
     values = counts if kind == 'Headcount' else counts / total * 100
     fig, ax = plt.subplots(figsize=(12.5, 5.5), dpi=160)
@@ -144,7 +149,7 @@ def draw_chart(row, kind):
     ax.set_xticks(X, GRADES)
     ax.set_xlim(-0.65, 15.25)
     ax.set_ylabel('Count' if kind == 'Headcount' else 'Percentage (%)')
-    ax.set_title(f"{row['Selection']} — {kind}", pad=17, fontsize=13, weight='bold')
+    ax.set_title(f"{selection} — {kind}", pad=17, fontsize=13, weight='bold')
     ax.grid(axis='y', linestyle='--', alpha=0.25)
     ax.set_axisbelow(True)
     ax.spines[['top', 'right']].set_visible(False)
@@ -162,6 +167,10 @@ def draw_chart(row, kind):
     return output.getvalue()
 
 
+def draw_chart(row, kind):
+    return draw_chart_cached(str(row['Selection']), tuple(int(row[g]) for g in GRADES), kind)
+
+
 def safe_name(value):
     return re.sub(r'[^A-Za-z0-9._-]+', '_', value).strip('_')[:100]
 
@@ -172,10 +181,10 @@ if mode == 'Selected course':
     left, right = st.columns(2)
     with left:
         st.image(count_png, caption='Headcount')
-        st.download_button('Download Headcount PNG', count_png, f'{safe_name(selected)}_Headcount.png', 'image/png')
+        st.download_button('Download Headcount PNG', count_png, f'{safe_name(selected)}_Headcount.png', 'image/png', on_click='ignore')
     with right:
         st.image(pct_png, caption='Percentage')
-        st.download_button('Download Percentage PNG', pct_png, f'{safe_name(selected)}_Percentage.png', 'image/png')
+        st.download_button('Download Percentage PNG', pct_png, f'{safe_name(selected)}_Percentage.png', 'image/png', on_click='ignore')
     rows_to_export = [row]
 else:
     rows_to_export = [row for _, row in df.iterrows()]
@@ -183,7 +192,6 @@ else:
 
 # Generate bulk ZIP only on request, and report actual chart-generation progress.
 # Store completed bytes so Streamlit reruns do not regenerate every PNG.
-import hashlib
 file_signature = hashlib.sha256(file.getvalue()).hexdigest()
 export_signature = (file_signature, mode, selected if mode == 'Selected course' else 'ALL')
 if st.session_state.get('zip_export_signature') != export_signature:
@@ -207,6 +215,7 @@ if st.button(f'Generate ZIP ({chart_count} PNG charts)', type='primary', key='ge
                     progress_bar.progress(completed / chart_count,
                                           text=f'{completed} / {chart_count} charts generated ({completed / chart_count:.0%})')
         st.session_state['zip_export_bytes'] = zip_buffer.getvalue()
+        progress_bar.empty()
         status.success(f'All {chart_count} charts are ready. Download the ZIP below.')
     except Exception as exc:
         st.session_state.pop('zip_export_bytes', None)
@@ -236,9 +245,9 @@ comparison_source['Year Label'] = comparison_source['Year'].astype(str).str.repl
 comparison_source['Term Label'] = comparison_source['Term'].astype(str).str.strip()
 
 # A new upload must not inherit record selections from the previous workbook.
-workbook_signature = tuple(comparison_source['Selection'].tolist())
+workbook_signature = file_signature
 if st.session_state.get('_comparison_workbook_signature') != workbook_signature:
-    for state_key in ('compare_courses', 'compare_years', 'compare_terms', 'compare_records'):
+    for state_key in ('compare_courses', 'compare_years', 'compare_terms', 'compare_records', 'comparison_applied_filters'):
         st.session_state.pop(state_key, None)
     st.session_state['_comparison_workbook_signature'] = workbook_signature
 
@@ -246,22 +255,32 @@ course_options = sorted(comparison_source['Course Name'].unique().tolist())
 year_options = sorted(comparison_source['Year Label'].unique().tolist())
 term_options = sorted(comparison_source['Term Label'].unique().tolist())
 
-filter_columns = st.columns(3)
-with filter_columns[0]:
-    course_filter = st.multiselect(
-        'Course', course_options, default=[], key='compare_courses',
-        help='Leave empty to include all courses.',
-    )
-with filter_columns[1]:
-    year_filter = st.multiselect(
-        'Year', year_options, default=[], key='compare_years',
-        help='Leave empty to include all years.',
-    )
-with filter_columns[2]:
-    term_filter = st.multiselect(
-        'Semester / Term', term_options, default=[], key='compare_terms',
-        help='Leave empty to include all semesters.',
-    )
+with st.form('comparison_filter_form'):
+    st.caption('Choose any combination of filters, then click Apply filters. Empty filters mean all records.')
+    filter_columns = st.columns(3)
+    with filter_columns[0]:
+        course_filter = st.multiselect(
+            'Course', course_options, default=[], key='compare_courses',
+            help='Leave empty to include all courses.',
+        )
+    with filter_columns[1]:
+        year_filter = st.multiselect(
+            'Year', year_options, default=[], key='compare_years',
+            help='Leave empty to include all years.',
+        )
+    with filter_columns[2]:
+        term_filter = st.multiselect(
+            'Semester / Term', term_options, default=[], key='compare_terms',
+            help='Leave empty to include all semesters.',
+        )
+    apply_filters = st.form_submit_button('Apply filters', type='primary')
+
+# The applied filters are separate from form widget state. Form edits do not
+# trigger chart generation or rebuild the page until Apply filters is clicked.
+filter_signature = (tuple(course_filter), tuple(year_filter), tuple(term_filter))
+if apply_filters or 'comparison_applied_filters' not in st.session_state:
+    st.session_state['comparison_applied_filters'] = filter_signature
+course_filter, year_filter, term_filter = st.session_state['comparison_applied_filters']
 
 comparison_df = comparison_source
 if course_filter:
@@ -288,14 +307,21 @@ comparison_selections = st.multiselect(
     help='Each selected course/year/semester is a separate bar. Change the filters above to narrow the choices.',
 )
 if options:
-    if st.button('Select all matching records', key='select_all_comparison'):
-        st.session_state['compare_records'] = options.copy()
-        st.rerun()
+    st.button('Select all matching records', key='select_all_comparison',
+              on_click=lambda choices=options.copy(): st.session_state.update(compare_records=choices))
 else:
     st.info('No records match these filters. Clear one or more filters to continue.')
 
 STACK_LABELS = ['A Grades', 'B Grades', 'C Grades', 'D Grades']
 STACK_COLORS = ['#22547c', '#315c9d', '#578638', '#c90000']
+
+@st.cache_data(show_spinner=False, max_entries=32)
+def draw_stacked_comparison_cached(selection_labels, grade_matrix, years, terms):
+    rows = pd.DataFrame(grade_matrix, columns=GRADES)
+    rows['Selection'] = list(selection_labels)
+    rows['Year'] = list(years)
+    rows['Term'] = list(terms)
+    return draw_stacked_comparison(rows)
 
 def draw_stacked_comparison(rows):
     rows = rows.copy()
@@ -350,11 +376,16 @@ def draw_stacked_comparison(rows):
 
 if comparison_selections:
     comparison_rows = df.set_index('Selection').loc[comparison_selections].reset_index()
-    comparison_png = draw_stacked_comparison(comparison_rows)
+    comparison_png = draw_stacked_comparison_cached(
+        tuple(comparison_rows['Selection'].astype(str)),
+        tuple(tuple(int(v) for v in r) for r in comparison_rows[GRADES].to_numpy()),
+        tuple(comparison_rows['Year'].astype(str)),
+        tuple(comparison_rows['Term'].astype(str)),
+    )
     st.image(comparison_png, caption=f'{len(comparison_selections)} selected course/semester records')
     st.download_button('Download comparison PNG', comparison_png,
                        'Grade_Distribution_Comparison_Stacked.png', 'image/png',
-                       key='comparison_download')
+                       key='comparison_download', on_click='ignore')
 else:
     st.info('Choose at least one course/semester record to create the comparison chart.')
 

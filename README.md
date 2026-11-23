@@ -22,7 +22,7 @@ A lightweight web app for turning university course grade-count spreadsheets int
 3. Upload your `.xlsx` file using **Choose an Excel file**.
 4. Review the detected records and any skipped-row message.
 5. For individual charts, select **Selected course** and choose the course/semester; or select **All courses**, click **Generate ZIP**, watch the progress indicator, and download the finished ZIP.
-6. For a comparison chart, scroll to **Compare Courses / Years**, filter by course, and choose the specific records to include. Download the PNG.
+6. For a comparison chart, scroll to **Compare Courses / Years**, choose Course, Year and Semester filters, click **Apply filters**, and select the specific records to include. Download the PNG.
 
 ## Supported Excel formats
 
@@ -65,9 +65,17 @@ One row represents one course in one year and term. For example, `COMPSYS 201`, 
 A percentage = (A+ + A + A-) / (sum of A+ through D-) × 100
 ```
 
-**Comparison filters:** use **Course**, **Year**, and **Semester / Term** independently. An empty filter means “all”. The final **Courses / semesters to include in the chart** control selects the individual records. Changing filters removes selections that are no longer available, preventing stale selections and “No results”. Use **Select all matching records** to include every record matching the filters. The same course in different years or semesters remains separate (not automatically aggregated).
+**Comparison filters:** use **Course**, **Year**, and **Semester / Term** independently. An empty filter means “all”. The final **Courses / semesters to include in the chart** control selects the individual records. Click **Apply filters** to update the available records. Form selections do not trigger a rerun until applied; selections that no longer match are removed. A “No results” message in an open dropdown can also mean there are no further options to add. Use **Select all matching records** to include every record matching the filters. The same course in different years or semesters remains separate (not automatically aggregated).
 
 **Comparison chart:** A/B/C/D each combine their `+`, plain, and `−` grades. Each selected course/year/term record becomes one 100%-stacked bar. Percentages are calculated separately for each record. Small segments may omit labels to avoid clutter.
+
+## Performance and progress
+
+- **Course / Year / Semester** filter changes are grouped in an **Apply filters** form to avoid unnecessary reruns for each selection.
+- Single-course and comparison PNGs are cached by their data and selection, so unrelated interactions do not redraw identical charts.
+- Bulk ZIP generation starts **only** when **Generate ZIP** is clicked, and reports progress for each completed PNG. The ZIP download appears after generation completes.
+- Streamlit may briefly dim the page while a script is running. This is expected during bulk generation, but filter changes should be much faster.
+- The comparison preview still updates when the selected records change; very large selections can take longer the first time.
 
 ## Deploy to Streamlit Community Cloud
 
