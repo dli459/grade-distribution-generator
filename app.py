@@ -19,6 +19,36 @@ st.set_page_config(page_title='Grade Distribution Generator', page_icon='📊', 
 st.title('Grade Distribution Generator')
 st.caption('Upload an Excel workbook → preview courses → export Headcount and Percentage charts')
 
+@st.cache_data
+def make_excel_template():
+    columns = ['Course', 'Year', 'Term'] + GRADES
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        pd.DataFrame(columns=columns).to_excel(writer, sheet_name='Raw_Data', index=False)
+        ws = writer.sheets['Raw_Data']
+        ws.freeze_panes = 'D2'
+        ws.auto_filter.ref = 'A1:O1'
+        ws.column_dimensions['A'].width = 24
+        ws.column_dimensions['B'].width = 13
+        ws.column_dimensions['C'].width = 19
+        for col in 'DEFGHIJKLMNO':
+            ws.column_dimensions[col].width = 11
+        from openpyxl.styles import PatternFill, Font, Alignment
+        for cell in ws[1]:
+            cell.fill = PatternFill('solid', fgColor='173A57')
+            cell.font = Font(color='FFFFFF', bold=True)
+            cell.alignment = Alignment(horizontal='center')
+    return buffer.getvalue()
+
+st.download_button(
+    '⬇️ Download blank Excel template',
+    data=make_excel_template(),
+    file_name='Grade_Distribution_Input_Template.xlsx',
+    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    help='Fill one course / year / semester per row. Enter grade counts as non-negative whole numbers.',
+)
+
+
 with st.expander('Supported Excel formats', expanded=False):
     st.write('**Dashboard export:** the original Grade Distributions Dashboard workbook, including its title rows and split grade columns.')
     st.write('**Prepared data:** a Raw_Data sheet with Course, Year, Term, and A+ through D- columns.')

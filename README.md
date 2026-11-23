@@ -1,32 +1,101 @@
 # Grade Distribution Generator
 
-A simple Streamlit app for generating two charts per course: **Headcount** and **Percentage**.
+A lightweight web app for turning university course grade-count spreadsheets into consistent, publication-ready charts. Built with **Python, Streamlit, pandas and Matplotlib**. Users can upload an Excel file, choose courses, preview results, and download PNG images without installing Python.
 
-## Run locally
+> **Live app:** Add your Streamlit URL here after deployment.
+
+## What the app can do
+
+| Feature | Description |
+| --- | --- |
+| Single-course charts | Generate **Headcount** and **Percentage** charts for the 12 grades from A+ through D−. |
+| Bulk export | Download both charts for every eligible course record in one ZIP file. |
+| Course/year comparison | Select multiple course/year/semester records and generate a **100% stacked percentage chart** with A, B, C and D grade groups. |
+| Downloadable input template | Download a blank Excel template and enter new course data. |
+| Original Dashboard exports | Read supported *Student Grade Distributions Dashboard* Excel exports directly, without manually removing their title rows or empty columns. |
+| Validation | Flag invalid grade counts and skip records with no A+–D− grades. |
+
+## Quick start for users
+
+1. Open the deployed Streamlit web app.
+2. If you are entering data yourself, click **Download blank Excel template**, fill it in, and save it as `.xlsx`. Alternatively, use a supported original Dashboard export.
+3. Upload your `.xlsx` file using **Choose an Excel file**.
+4. Review the detected records and any skipped-row message.
+5. For individual charts, select **Selected course** and choose the course/semester; or select **All courses** to export everything as a ZIP.
+6. For a comparison chart, scroll to **Compare Courses / Years**, filter by course, and choose the specific records to include. Download the PNG.
+
+## Supported Excel formats
+
+### Option A — original Grade Distributions Dashboard export
+
+The app looks through worksheets for the expected header row in the **first 40 rows**. The recognized header labels are:
+
+- `Year`, `Term Group`, `Subject`, `Catalog Number`
+- `A+`, `A`, `A-`, `B+`, `B`, `B-`, `C+`, `C`, `C-`, `D+`, `D`, `D-`
+
+The app combines `Subject` and `Catalog Number` into the displayed course name. Additional columns such as `Unknown`, `Withdrawn`, or `Not Graded` are not included in the percentage denominator.
+
+### Option B — prepared input template
+
+Download the template from the app. Its worksheet is named `Raw_Data`, with this header row:
+
+```text
+Course | Year | Term | A+ | A | A- | B+ | B | B- | C+ | C | C- | D+ | D | D-
+```
+
+One row represents one course in one year and term. For example, `COMPSYS 201`, `2026`, `Semester 1`. The example names are illustrative; enter your own counts. Keep the column headings unchanged. You can add as many rows as you need.
+
+### Data requirements
+
+- File type: `.xlsx`.
+- `Year`: a four-digit year (for example, `2025`).
+- `Course` and `Term`: non-empty.
+- Grade counts: **non-negative whole numbers**. Blank grade cells in otherwise valid records are treated as zero.
+- Rows where all 12 grade counts are missing or zero are skipped.
+- The app may display separate bars for different semesters of the same course/year; it does **not** automatically combine semesters.
+- For accurate comparisons, ensure the input represents distinct records; duplicate course/year/term records are not automatically merged.
+
+## Chart rules
+
+**Single-course charts:** the 12 grade levels use four related color families: A = blue, B = green, C = orange, D = red. Bars within a family are close together, with visible gaps between families. Headcount labels are whole numbers; percentage labels show **two decimal places**.
+
+**Percentages:** the denominator is the sum of grade counts from A+ through D−, **not** a separate course headcount field. For example:
+
+```text
+A percentage = (A+ + A + A-) / (sum of A+ through D-) × 100
+```
+
+**Comparison chart:** A/B/C/D each combine their `+`, plain, and `−` grades. Each selected course/year/term record becomes one 100%-stacked bar. Percentages are calculated separately for each record. Small segments may omit labels to avoid clutter.
+
+## Deploy to Streamlit Community Cloud
+
+1. Put `app.py`, `requirements.txt`, and `README.md` in the root of your GitHub repository.
+2. Sign in at https://share.streamlit.io/ and choose **Create app**.
+3. Select the repository, its branch (normally `main`), and main file path `app.py`.
+4. Deploy, then open the provided `.streamlit.app` URL.
+5. Upload a **non-sensitive test workbook** and check the results before sharing the link.
+
+### Update an existing deployment
+
+Edit or replace `app.py` and `README.md` in the **same** GitHub repository and commit the changes. Streamlit Community Cloud normally redeploys when the configured branch changes. You do not need to create a second app. If it does not refresh, check the app's deployment logs and restart/reboot it from Streamlit's app management interface.
+
+## Run locally (optional)
 
 ```bash
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 streamlit run app.py
 ```
 
-## Publish a website for Kevin
+## Project files
 
-1. Create a GitHub repository and upload `app.py` and `requirements.txt` (and optionally this README).
-2. Visit https://share.streamlit.io/ and sign in with GitHub.
-3. Choose **Create app**, select the repository, branch `main`, and entry point `app.py`.
-4. Deploy and share the resulting URL with Kevin.
+```text
+app.py            Streamlit interface, Excel parsing, chart generation, downloads
+requirements.txt  Python package requirements
+README.md         User guide and deployment instructions
+```
 
-**Privacy:** Do not upload private or restricted university datasets to public hosting without appropriate authorization. A public Streamlit URL is accessible to anyone who knows it unless additional access controls are configured. Use a private deployment if necessary.
+## Privacy and limitations
 
-## Input workbook
+**Important:** A public GitHub repository exposes its source code, and a publicly accessible Streamlit app may be used by anyone with its URL. Do not commit student-level records, confidential spreadsheets, API keys, or credentials. Only upload university data to a hosting service when your institution's data-handling policies permit it. The app does not intentionally write uploaded workbooks to a persistent database, but the hosting platform processes the files in its environment.
 
-The app looks for a sheet named `Raw_Data`, otherwise uses the first sheet. Required columns: `Course`, `Year`, `Term`, `A+`, `A`, `A-`, `B+`, `B`, `B-`, `C+`, `C`, `C-`, `D+`, `D`, `D-`.
-
-Optional columns include `Subject` and `Course Headcount`. Rows without graded counts are skipped. The denominator for percentages is the sum of A+ through D- counts, not `Course Headcount`.
-
-## Output
-
-- Per-course headcount PNG with integer labels
-- Per-course percentage PNG with two-decimal labels
-- Downloadable ZIP for selected or all courses
-- A/B/C/D grade groups use blue/green/orange/red shades, with tightly spaced bars within each group and clear gaps between groups.
+This is a prototype, not an official University of Auckland service. Input formats outside the two documented layouts may need adjustments. Charts should be checked against the source data before use in formal reports.
