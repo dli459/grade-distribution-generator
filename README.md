@@ -9,7 +9,7 @@ A lightweight web app for turning university course grade-count spreadsheets int
 | Feature | Description |
 | --- | --- |
 | Single-course charts | Generate **Headcount** and **Percentage** charts for the 12 grades from A+ through D−. |
-| Bulk export | Download both charts for every eligible course record in one ZIP file. |
+| Bulk export | Click **Generate ZIP** to build both charts for every eligible course record; follow the live progress bar, then click **Download all charts as ZIP**. |
 | Course/year comparison | Select multiple course/year/semester records and generate a **100% stacked percentage chart** with A, B, C and D grade groups. |
 | Downloadable input template | Download a blank Excel template and enter new course data. |
 | Original Dashboard exports | Read supported *Student Grade Distributions Dashboard* Excel exports directly, without manually removing their title rows or empty columns. |
@@ -21,7 +21,7 @@ A lightweight web app for turning university course grade-count spreadsheets int
 2. If you are entering data yourself, click **Download blank Excel template**, fill it in, and save it as `.xlsx`. Alternatively, use a supported original Dashboard export.
 3. Upload your `.xlsx` file using **Choose an Excel file**.
 4. Review the detected records and any skipped-row message.
-5. For individual charts, select **Selected course** and choose the course/semester; or select **All courses** to export everything as a ZIP.
+5. For individual charts, select **Selected course** and choose the course/semester; or select **All courses**, click **Generate ZIP**, watch the progress indicator, and download the finished ZIP.
 6. For a comparison chart, scroll to **Compare Courses / Years**, filter by course, and choose the specific records to include. Download the PNG.
 
 ## Supported Excel formats

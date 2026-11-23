@@ -181,13 +181,45 @@ else:
     rows_to_export = [row for _, row in df.iterrows()]
     st.write(f'Ready to export **{len(rows_to_export) * 2} PNG charts**.')
 
-zip_buffer = io.BytesIO()
-with zipfile.ZipFile(zip_buffer, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
-    for row in rows_to_export:
-        name = safe_name(row['Selection'])
-        archive.writestr(f'{name}_Headcount.png', draw_chart(row, 'Headcount'))
-        archive.writestr(f'{name}_Percentage.png', draw_chart(row, 'Percentage'))
-st.download_button('📦 Download all charts as ZIP', zip_buffer.getvalue(), 'Grade_Distribution_Charts.zip', 'application/zip', type='primary')
+# Generate bulk ZIP only on request, and report actual chart-generation progress.
+# Store completed bytes so Streamlit reruns do not regenerate every PNG.
+import hashlib
+file_signature = hashlib.sha256(file.getvalue()).hexdigest()
+export_signature = (file_signature, mode, selected if mode == 'Selected course' else 'ALL')
+if st.session_state.get('zip_export_signature') != export_signature:
+    st.session_state.pop('zip_export_bytes', None)
+    st.session_state['zip_export_signature'] = export_signature
+
+chart_count = len(rows_to_export) * 2
+if st.button(f'Generate ZIP ({chart_count} PNG charts)', type='primary', key='generate_zip'):
+    progress_bar = st.progress(0, text=f'Preparing {chart_count} charts…')
+    status = st.empty()
+    zip_buffer = io.BytesIO()
+    completed = 0
+    try:
+        with zipfile.ZipFile(zip_buffer, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+            for row in rows_to_export:
+                name = safe_name(row['Selection'])
+                for kind in ('Headcount', 'Percentage'):
+                    status.caption(f'Generating {completed + 1} of {chart_count}: {row["Selection"]} — {kind}')
+                    archive.writestr(f'{name}_{kind}.png', draw_chart(row, kind))
+                    completed += 1
+                    progress_bar.progress(completed / chart_count,
+                                          text=f'{completed} / {chart_count} charts generated ({completed / chart_count:.0%})')
+        st.session_state['zip_export_bytes'] = zip_buffer.getvalue()
+        status.success(f'All {chart_count} charts are ready. Download the ZIP below.')
+    except Exception as exc:
+        st.session_state.pop('zip_export_bytes', None)
+        status.error(f'Could not generate the ZIP: {exc}')
+
+if 'zip_export_bytes' in st.session_state:
+    st.download_button('📦 Download all charts as ZIP',
+                       data=st.session_state['zip_export_bytes'],
+                       file_name='Grade_Distribution_Charts.zip',
+                       mime='application/zip', type='primary',
+                       on_click='ignore')
+else:
+    st.caption('Click Generate ZIP to create the images. A progress bar will show each chart as it finishes.')
 
 
 # Cross-course / cross-year A-B-C-D comparison (one bar per selected row).
