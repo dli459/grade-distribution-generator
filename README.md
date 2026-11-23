@@ -65,6 +65,8 @@ One row represents one course in one year and term. For example, `COMPSYS 201`, 
 A percentage = (A+ + A + A-) / (sum of A+ through D-) × 100
 ```
 
+**Comparison filters:** use **Course**, **Year**, and **Semester / Term** independently. An empty filter means “all”. The final **Courses / semesters to include in the chart** control selects the individual records. Changing filters removes selections that are no longer available, preventing stale selections and “No results”. Use **Select all matching records** to include every record matching the filters. The same course in different years or semesters remains separate (not automatically aggregated).
+
 **Comparison chart:** A/B/C/D each combine their `+`, plain, and `−` grades. Each selected course/year/term record becomes one 100%-stacked bar. Percentages are calculated separately for each record. Small segments may omit labels to avoid clutter.
 
 ## Deploy to Streamlit Community Cloud

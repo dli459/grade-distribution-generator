@@ -193,24 +193,74 @@ st.download_button('📦 Download all charts as ZIP', zip_buffer.getvalue(), 'Gr
 # Cross-course / cross-year A-B-C-D comparison (one bar per selected row).
 st.divider()
 st.header('Compare Courses / Years — 100% Stacked Percentage')
-st.write('Select the course/semester records you want in one comparison chart. Each bar sums to 100%.')
+st.write('Filter by course, year and semester, then select the records you want in one comparison chart. Each bar sums to 100%.')
 
-course_names = df['Selection'].str.split(' | ', regex=False).str[0]
-course_options = sorted(course_names.unique().tolist())
-preferred_course = course_options[0] if course_options else None
-course_filter = st.multiselect(
-    'Filter by course (optional)', course_options,
-    default=[preferred_course] if preferred_course else [],
-    help='Select one course to compare years, or several courses to compare them together.',
-)
-comparison_df = df.loc[course_names.isin(course_filter)] if course_filter else df
+# Keep course/year/semester filters independent of the selected comparison rows.
+# Reconcile stale widget state before constructing the multiselect, otherwise
+# Streamlit may display selected pills that no longer belong to its options.
+comparison_source = df.copy()
+comparison_source['Course Name'] = comparison_source['Selection'].str.split(' | ', regex=False).str[0]
+comparison_source['Year Label'] = comparison_source['Year'].astype(str).str.replace(r'\.0$', '', regex=True)
+comparison_source['Term Label'] = comparison_source['Term'].astype(str).str.strip()
+
+# A new upload must not inherit record selections from the previous workbook.
+workbook_signature = tuple(comparison_source['Selection'].tolist())
+if st.session_state.get('_comparison_workbook_signature') != workbook_signature:
+    for state_key in ('compare_courses', 'compare_years', 'compare_terms', 'compare_records'):
+        st.session_state.pop(state_key, None)
+    st.session_state['_comparison_workbook_signature'] = workbook_signature
+
+course_options = sorted(comparison_source['Course Name'].unique().tolist())
+year_options = sorted(comparison_source['Year Label'].unique().tolist())
+term_options = sorted(comparison_source['Term Label'].unique().tolist())
+
+filter_columns = st.columns(3)
+with filter_columns[0]:
+    course_filter = st.multiselect(
+        'Course', course_options, default=[], key='compare_courses',
+        help='Leave empty to include all courses.',
+    )
+with filter_columns[1]:
+    year_filter = st.multiselect(
+        'Year', year_options, default=[], key='compare_years',
+        help='Leave empty to include all years.',
+    )
+with filter_columns[2]:
+    term_filter = st.multiselect(
+        'Semester / Term', term_options, default=[], key='compare_terms',
+        help='Leave empty to include all semesters.',
+    )
+
+comparison_df = comparison_source
+if course_filter:
+    comparison_df = comparison_df[comparison_df['Course Name'].isin(course_filter)]
+if year_filter:
+    comparison_df = comparison_df[comparison_df['Year Label'].isin(year_filter)]
+if term_filter:
+    comparison_df = comparison_df[comparison_df['Term Label'].isin(term_filter)]
+
 options = comparison_df['Selection'].tolist()
-default_options = options[:min(len(options), 10)]
+# Clear invalid selections BEFORE the widget is created. This prevents the
+# old 'No results' state when switching courses, years, or semesters.
+if 'compare_records' in st.session_state:
+    st.session_state['compare_records'] = [
+        item for item in st.session_state['compare_records'] if item in options
+    ]
+else:
+    st.session_state['compare_records'] = options[:10]
+
+st.caption(f'{len(options)} matching record(s). Select the individual records to plot below.')
 comparison_selections = st.multiselect(
     'Courses / semesters to include in the chart', options,
-    default=default_options,
-    help='Every selected record becomes one bar. You can remove individual years or semesters.',
+    key='compare_records',
+    help='Each selected course/year/semester is a separate bar. Change the filters above to narrow the choices.',
 )
+if options:
+    if st.button('Select all matching records', key='select_all_comparison'):
+        st.session_state['compare_records'] = options.copy()
+        st.rerun()
+else:
+    st.info('No records match these filters. Clear one or more filters to continue.')
 
 STACK_LABELS = ['A Grades', 'B Grades', 'C Grades', 'D Grades']
 STACK_COLORS = ['#22547c', '#315c9d', '#578638', '#c90000']
