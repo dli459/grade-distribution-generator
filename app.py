@@ -19,51 +19,85 @@ st.set_page_config(page_title='Grade Distribution Generator', page_icon='📊', 
 st.title('Grade Distribution Generator')
 st.caption('Upload an Excel workbook → preview courses → export Headcount and Percentage charts')
 
-with st.expander('Expected Excel format', expanded=False):
-    st.write('Use a worksheet named **Raw_Data**, or put the data on the first worksheet. Required columns: **Course, Year, Term** and the 12 grade columns from **A+** through **D-**. Optional: **Subject** and **Course Headcount**.')
-    st.write('One row per course/semester. Blank or non-numeric grade cells are treated as missing, not zero; rows with no grades are skipped. Percentages use the sum of the 12 graded counts, excluding unknown/missing grades.')
+with st.expander('Supported Excel formats', expanded=False):
+    st.write('**Dashboard export:** the original Grade Distributions Dashboard workbook, including its title rows and split grade columns.')
+    st.write('**Prepared data:** a Raw_Data sheet with Course, Year, Term, and A+ through D- columns.')
+    st.write('Percentages are calculated using only A+ through D- grade counts. Rows with no graded students are skipped.')
 
 file = st.file_uploader('Choose an Excel file', type=['xlsx'])
 if not file:
     st.info('Upload your Excel file to begin. No account or API key is required.')
     st.stop()
 
+
+def parse_workbook(upload):
+    book = pd.ExcelFile(upload)
+    for sheet in (['Raw_Data'] if 'Raw_Data' in book.sheet_names else []) + [x for x in book.sheet_names if x != 'Raw_Data']:
+        preview = pd.read_excel(book, sheet_name=sheet, header=None, nrows=40, dtype=object)
+        header_index = None
+        is_dashboard = False
+        for i, row in preview.iterrows():
+            entries = {str(x).strip() for x in row.dropna()}
+            if {'Year', 'Term Group', 'Subject', 'Catalog Number', 'A+', 'D-'}.issubset(entries):
+                header_index = i
+                is_dashboard = True
+                break
+            if {'Course', 'Year', 'Term', 'A+', 'D-'}.issubset(entries):
+                header_index = i
+                break
+        if header_index is None:
+            continue
+        data = pd.read_excel(book, sheet_name=sheet, header=header_index, dtype=object)
+        data.columns = [str(x).strip() for x in data.columns]
+        if is_dashboard:
+            data = data.rename(columns={'Term Group': 'Term', 'Catalog Number': 'Course'})
+        required = ['Course', 'Year', 'Term'] + GRADES
+        if any(c not in data.columns for c in required):
+            continue
+        data = data.dropna(subset=['Course', 'Year', 'Term'], how='any').copy()
+        data = data[data['Course'].astype(str).str.strip().ne('')]
+        data = data[data['Year'].astype(str).str.match(r'^\d{4}(?:\.0)?$')]
+        if data.empty:
+            continue
+        for grade in GRADES:
+            original = data[grade]
+            converted = pd.to_numeric(original, errors='coerce')
+            unexpected = original.notna() & original.astype(str).str.strip().ne('') & converted.isna()
+            if unexpected.any():
+                raise ValueError(f'Non-numeric grade counts found in column {grade}.')
+            data[grade] = converted
+        invalid = data[GRADES].lt(0).any(axis=1) | data[GRADES].apply(
+            lambda col: (col.notna() & (col % 1 != 0))
+        ).any(axis=1)
+        if invalid.any():
+            raise ValueError(f'{int(invalid.sum())} row(s) contain negative or non-integer grade counts.')
+        data['Graded Total'] = data[GRADES].sum(axis=1, min_count=1)
+        skipped = data['Graded Total'].isna() | data['Graded Total'].eq(0)
+        data = data.loc[~skipped].copy()
+        if data.empty:
+            raise ValueError('No rows with graded students were found.')
+        data[GRADES] = data[GRADES].fillna(0)
+        def label(row):
+            year = str(row['Year']).replace('.0', '')
+            subject = str(row.get('Subject', '')).strip() if pd.notna(row.get('Subject', '')) else ''
+            course = str(row['Course']).replace('.0', '').strip()
+            course_name = course if course.upper().startswith(subject.upper() + ' ') and subject else f'{subject} {course}'.strip()
+            return f"{course_name} | {year} {str(row['Term']).strip()}"
+        data['Selection'] = data.apply(label, axis=1)
+        data['Selection'] += data.groupby('Selection').cumcount().map(
+            lambda n: f' (duplicate {n+1})' if n else ''
+        )
+        return data, sheet, int(skipped.sum()), 'Dashboard export' if is_dashboard else 'Prepared Raw_Data'
+    raise ValueError('No supported grade table found. Check the workbook format and grade headers.')
+
+
 try:
-    book = pd.ExcelFile(file)
-    sheet = 'Raw_Data' if 'Raw_Data' in book.sheet_names else book.sheet_names[0]
-    df = pd.read_excel(book, sheet_name=sheet)
-    df.columns = [str(c).strip() for c in df.columns]
-    required = ['Course', 'Year', 'Term'] + GRADES
-    missing = [c for c in required if c not in df.columns]
-    if missing:
-        st.error('Missing columns: ' + ', '.join(missing))
-        st.stop()
-    for grade in GRADES:
-        df[grade] = pd.to_numeric(df[grade], errors='coerce')
-    invalid = df[GRADES].lt(0).any(axis=1) | df[GRADES].apply(lambda s: (s.notna() & (s % 1 != 0))).any(axis=1)
-    if invalid.any():
-        st.error(f'{invalid.sum()} row(s) contain negative or non-integer grade counts. Please correct the source file.')
-        st.dataframe(df.loc[invalid, ['Course', 'Year', 'Term'] + GRADES], hide_index=True)
-        st.stop()
-    df['Graded Total'] = df[GRADES].sum(axis=1, min_count=1)
-    skipped = df['Graded Total'].isna() | df['Graded Total'].eq(0)
-    df = df.loc[~skipped].copy()
-    if df.empty:
-        st.error('No rows with graded students were found.')
-        st.stop()
-    def label(row):
-        year = str(row['Year']).replace('.0', '')
-        subject = str(row.get('Subject', '')).strip() if pd.notna(row.get('Subject', '')) else ''
-        course = str(row['Course']).replace('.0', '').strip()
-        course_name = f'{subject} {course}'.strip()
-        return f"{course_name} | {year} {str(row['Term']).strip()}"
-    df['Selection'] = df.apply(label, axis=1)
-    df['Selection'] = df['Selection'] + df.groupby('Selection').cumcount().map(lambda n: f' (row {n+1})' if n else '')
+    df, sheet, skipped_count, format_name = parse_workbook(file)
 except Exception as exc:
     st.error(f'Could not read this workbook: {exc}')
     st.stop()
 
-st.success(f'Loaded {len(df)} course rows from “{sheet}”. Skipped {int(skipped.sum())} rows with no graded students.')
+st.success(f'Loaded {len(df)} course rows from “{sheet}”. Skipped {skipped_count} rows with no graded students. Detected format: {format_name}.')
 st.dataframe(df[['Selection', 'Graded Total'] + GRADES], hide_index=True, use_container_width=True)
 mode = st.radio('Generate charts for', ['Selected course', 'All courses'], horizontal=True)
 selected = st.selectbox('Course / Semester', df['Selection'].tolist(), disabled=(mode == 'All courses'))
