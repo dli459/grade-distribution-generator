@@ -159,4 +159,91 @@ with zipfile.ZipFile(zip_buffer, 'w', compression=zipfile.ZIP_DEFLATED) as archi
         archive.writestr(f'{name}_Percentage.png', draw_chart(row, 'Percentage'))
 st.download_button('📦 Download all charts as ZIP', zip_buffer.getvalue(), 'Grade_Distribution_Charts.zip', 'application/zip', type='primary')
 
+
+# Cross-course / cross-year A-B-C-D comparison (one bar per selected row).
+st.divider()
+st.header('Compare Courses / Years — 100% Stacked Percentage')
+st.write('Select the course/semester records you want in one comparison chart. Each bar sums to 100%.')
+
+course_names = df['Selection'].str.split(' | ', regex=False).str[0]
+course_options = sorted(course_names.unique().tolist())
+preferred_course = course_options[0] if course_options else None
+course_filter = st.multiselect(
+    'Filter by course (optional)', course_options,
+    default=[preferred_course] if preferred_course else [],
+    help='Select one course to compare years, or several courses to compare them together.',
+)
+comparison_df = df.loc[course_names.isin(course_filter)] if course_filter else df
+options = comparison_df['Selection'].tolist()
+default_options = options[:min(len(options), 10)]
+comparison_selections = st.multiselect(
+    'Courses / semesters to include in the chart', options,
+    default=default_options,
+    help='Every selected record becomes one bar. You can remove individual years or semesters.',
+)
+
+STACK_LABELS = ['A Grades', 'B Grades', 'C Grades', 'D Grades']
+STACK_COLORS = ['#22547c', '#315c9d', '#578638', '#c90000']
+
+def draw_stacked_comparison(rows):
+    rows = rows.copy()
+    grade_counts = rows[GRADES].to_numpy(dtype=float)
+    grouped_counts = np.column_stack([
+        grade_counts[:, 0:3].sum(axis=1),
+        grade_counts[:, 3:6].sum(axis=1),
+        grade_counts[:, 6:9].sum(axis=1),
+        grade_counts[:, 9:12].sum(axis=1),
+    ])
+    totals = grouped_counts.sum(axis=1)
+    percentages = grouped_counts / totals[:, None] * 100.0
+    n = len(rows)
+    fig, ax = plt.subplots(figsize=(max(10, n * 1.18 + 2.5), 6.8), dpi=160)
+    fig.patch.set_facecolor('white')
+    x = np.arange(n)
+    bottoms = np.zeros(n)
+    for j, (label, color) in enumerate(zip(STACK_LABELS, STACK_COLORS)):
+        heights = percentages[:, j]
+        ax.bar(x, heights, bottom=bottoms, width=0.76, label=label,
+               color=color, edgecolor='white', linewidth=0.7)
+        for i, h in enumerate(heights):
+            if h >= 4.0:
+                ax.text(x[i], bottoms[i] + h / 2, f'{h:.1f}%',
+                        ha='center', va='center', color='white',
+                        fontsize=9, fontweight='bold')
+        bottoms += heights
+    selected_course_names = rows['Selection'].str.split(' | ', regex=False).str[0]
+    if selected_course_names.nunique() == 1:
+        ticks = [f"{str(y).replace('.0', '')} {t}" for y, t in zip(rows['Year'], rows['Term'])]
+        title = f"Percentage Grade Breakdown: {selected_course_names.iloc[0]}"
+    else:
+        ticks = [str(x).replace(' | ', '\n') for x in rows['Selection']]
+        title = 'Percentage Grade Breakdown: Selected Courses / Years'
+    ax.set_xticks(x, ticks, rotation=35 if n > 8 else 0,
+                  ha='right' if n > 8 else 'center', fontsize=9)
+    ax.set_ylabel('Percentage (%)', fontweight='bold')
+    ax.set_xlabel('Year / Semester' if selected_course_names.nunique() == 1 else 'Course / Year / Semester')
+    ax.set_title(title, fontweight='bold', fontsize=14, pad=16)
+    ax.set_ylim(0, 100)
+    ax.set_yticks(np.arange(0, 101, 20))
+    ax.grid(axis='y', color='#d5d5d5', linewidth=0.8)
+    ax.set_axisbelow(True)
+    ax.spines[['top', 'right']].set_visible(False)
+    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.19 if n <= 8 else -0.29),
+              ncol=4, frameon=False, fontsize=9)
+    fig.tight_layout()
+    result = io.BytesIO()
+    fig.savefig(result, format='png', bbox_inches='tight', facecolor='white')
+    plt.close(fig)
+    return result.getvalue()
+
+if comparison_selections:
+    comparison_rows = df.set_index('Selection').loc[comparison_selections].reset_index()
+    comparison_png = draw_stacked_comparison(comparison_rows)
+    st.image(comparison_png, caption=f'{len(comparison_selections)} selected course/semester records')
+    st.download_button('Download comparison PNG', comparison_png,
+                       'Grade_Distribution_Comparison_Stacked.png', 'image/png',
+                       key='comparison_download')
+else:
+    st.info('Choose at least one course/semester record to create the comparison chart.')
+
 st.caption('The uploaded workbook is processed in the app session; this prototype does not save it to a database. Hosting providers may still process uploaded data, so check your institution’s data policy before uploading private records.')
